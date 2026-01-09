@@ -1,0 +1,11 @@
+{
+  "generatedAt": "2026-01-09T11:49:27",
+  "sourceFile": "REPORT DICEMBRE 25.xlsx",
+  "records": {
+    "bookings": 957,
+    "occupation": 463,
+    "fleet": 374,
+    "service": 30,
+    "incidents": 35
+  }
+}
