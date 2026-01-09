@@ -464,11 +464,11 @@ async function init() {
 
     // Caricamento JSON: niente manifest
     const [bookingsRaw, occupationRaw, fleetRaw, serviceRaw, incidentsRaw] = await Promise.all([
-      loadJSON("data/bookings.json"),
-      loadJSON("data/occupation.json"),
-      loadJSON("data/fleet.json"),
-      loadJSON("data/service.json"),
-      loadJSON("data/incidents.json")
+loadJSON("bookings.json")
+loadJSON("occupation.json")
+loadJSON("fleet.json")
+loadJSON("service.json")
+loadJSON("incidents.json")
     ]);
 
     // Normalizzazione campi bookings (accetta anche varianti)
