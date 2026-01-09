@@ -100,18 +100,17 @@ async function loadJSON(path) {
 
 async function init() {
   try {
-    const [bookings, occupation, fleet, service, incidents, manifest] = await Promise.all([
+    const [bookings, occupation, fleet, service, incidents] = await Promise.all([
       loadJSON('./data/bookings.json'),
       loadJSON('./data/occupation.json'),
       loadJSON('./data/fleet.json'),
       loadJSON('./data/service.json'),
       loadJSON('./data/incidents.json'),
-      loadJSON('./data/manifest.json'),
     ]);
 
-    DATA = { bookings, occupation, fleet, service, incidents, manifest };
+    DATA = { bookings, occupation, fleet, service, incidents};
 
-    els.status.textContent = `Dati OK • ${manifest.records.bookings} bookings`;
+    els.status.textContent = `Dati OK • ${records.bookings} bookings`;
     els.status.classList.add('ok');
 
     initFilters();
