@@ -1,6 +1,12 @@
 /* ==========================
    Station-dic25 Dashboard
    app.js (GitHub Pages safe)
+   JSON in ROOT:
+   - bookings.json
+   - occupation.json
+   - fleet.json
+   - service.json
+   - incidents.json
    ========================== */
 
 /** Range “picchi” */
@@ -54,19 +60,17 @@ function inRange(dateStr, from, to) {
 }
 
 /**
- * Base URL robusta per GitHub Pages:
- * se sei su https://user.github.io/repo/ -> base = https://user.github.io/repo/
+ * Base URL robusta per GitHub Pages.
+ * Esempio: https://user.github.io/repo/ -> base = https://user.github.io/repo/
  */
 const BASE = new URL(".", window.location.href);
 const url = (p) => new URL(p, BASE).toString();
 
+/** Carica JSON da path RELATIVO ALLA ROOT del sito */
 async function loadJSON(relativePath) {
   const full = url(relativePath);
   const res = await fetch(full, { cache: "no-store" });
-  if (!res.ok) {
-    // errore super chiaro
-    throw new Error(`HTTP ${res.status} su ${full}`);
-  }
+  if (!res.ok) throw new Error(`HTTP ${res.status} su ${full}`);
   return res.json();
 }
 
@@ -99,15 +103,6 @@ function groupCount(arr, keyFn) {
   for (const x of arr) {
     const k = keyFn(x) || "N/D";
     m.set(k, (m.get(k) || 0) + 1);
-  }
-  return m;
-}
-
-function groupSum(arr, keyFn, valFn) {
-  const m = new Map();
-  for (const x of arr) {
-    const k = keyFn(x) || "N/D";
-    m.set(k, (m.get(k) || 0) + Number(valFn(x) || 0));
   }
   return m;
 }
@@ -149,7 +144,6 @@ function renderFixedOccupation() {
   const occ = state.data.occupation || [];
   wrap.innerHTML = "";
 
-  // card fisse per branch
   for (const o of occ) {
     const bo = normStr(o.branchOffice ?? o.branch ?? "");
     const val = Number(o.occupation ?? o.occ ?? 0);
@@ -163,12 +157,10 @@ function renderFixedOccupation() {
     wrap.appendChild(card);
   }
 
-  // media fissa
   const avgEl = $("avgOcc");
   if (avgEl) {
-    if (!occ.length) {
-      avgEl.textContent = "—";
-    } else {
+    if (!occ.length) avgEl.textContent = "—";
+    else {
       const avg = occ.reduce((a, x) => a + Number(x.occupation ?? x.occ ?? 0), 0) / occ.length;
       avgEl.textContent = pct01(avg);
     }
@@ -182,10 +174,10 @@ function renderFixedFleetAndMaintenance() {
   const fleetTotalEl = $("fleetTotal");
   if (fleetTotalEl) fleetTotalEl.textContent = fmtNum(fleet.length);
 
-  // “in service”: status che contiene "progress" o "in"
+  // "in service": status contiene "progress" o "in progress"
   const inServiceCount = service.filter((s) => {
     const st = normStr(s.status).toLowerCase();
-    return st.includes("progress") || st === "in" || st.includes("in progress");
+    return st.includes("progress") || st.includes("in progress");
   }).length;
 
   const fleetInServiceEl = $("fleetInService");
@@ -226,80 +218,13 @@ function renderFixedFleetAndMaintenance() {
   }
 }
 
-function renderFilteredKPIsAndCharts() {
-  const filtered = filterBookings({ useDateRange: true });
-
-  const rev = filtered.reduce((a, b) => a + b.revenue, 0);
-  const anc = filtered.reduce((a, b) => a + b.ancillaries, 0);
-  const days = filtered.reduce((a, b) => a + (b.durationDays || 0), 0);
-  const inc = incidentsSumForBookings(filtered);
-
-  $("revTotal") && ($("revTotal").textContent = fmtEUR(rev));
-  $("ancTotal") && ($("ancTotal").textContent = fmtEUR(anc));
-  $("bookTotal") && ($("bookTotal").textContent = fmtNum(filtered.length));
-  $("incTotal") && ($("incTotal").textContent = fmtEUR(inc));
-
-  $("revDay") && ($("revDay").textContent = days > 0 ? fmtEUR(rev / days) : "—");
-  $("ancDay") && ($("ancDay").textContent = days > 0 ? fmtEUR(anc / days) : "—");
-
-  // Donut canali (filtrabile)
-  const byChannel = groupCount(filtered, (b) => normStr(b.channel));
-  const chLabels = [...byChannel.keys()];
-  const chVals = chLabels.map((k) => byChannel.get(k));
-
-  destroyChart("channelsDonut");
-  const chCanvas = $("channelsDonut");
-  if (chCanvas && window.Chart) {
-    state.charts.channelsDonut = new Chart(chCanvas, {
-      type: "doughnut",
-      data: { labels: chLabels, datasets: [{ data: chVals, borderWidth: 0 }] },
-      options: {
-        responsive: true,
-        plugins: {
-          legend: { position: "bottom" },
-          tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.raw}` } }
-        }
-      }
-    });
-  }
-
-  // % prenotazioni per provider (filtrabile) - bar
-  const byProvider = groupCount(filtered, (b) => normStr(b.provider));
-  const prLabels = [...byProvider.keys()];
-  const total = filtered.length || 1;
-  const prPerc = prLabels.map((k) => Math.round((byProvider.get(k) / total) * 1000) / 10);
-
-  destroyChart("providersBar");
-  const prCanvas = $("providersBar");
-  if (prCanvas && window.Chart) {
-    state.charts.providersBar = new Chart(prCanvas, {
-      type: "bar",
-      data: { labels: prLabels, datasets: [{ label: "% prenotazioni", data: prPerc }] },
-      options: {
-        responsive: true,
-        scales: { y: { beginAtZero: true, max: 100, ticks: { callback: (v) => v + "%" } } },
-        plugins: { legend: { display: false } }
-      }
-    });
-  }
-
-  // Tabella BO x Agente (filtrabile)
-  renderBoAgentTable(filtered);
-
-  // Trend 01/12 → 04/01 (filtrabile)
-  renderTrend(filtered);
-
-  // Line dicembre (01/12 → 31/12): filtra solo branch/agente (ignora range date)
-  renderDecemberDaily();
-}
-
 function renderBoAgentTable(filtered) {
   const table = $("boAgentTable");
   if (!table) return;
   const tbody = table.querySelector("tbody");
   if (!tbody) return;
 
-  const m = new Map(); // key branch||agent -> {rev, anc, cnt}
+  const m = new Map();
   for (const b of filtered) {
     const key = `${b.branchOffice}||${b.agent}`;
     if (!m.has(key)) m.set(key, { branchOffice: b.branchOffice, agent: b.agent, revenue: 0, anc: 0, cnt: 0 });
@@ -363,9 +288,7 @@ function renderTrend(filtered) {
         plugins: {
           legend: { position: "bottom" },
           tooltip: {
-            callbacks: {
-              afterBody: () => `Flotta: ${fleetTotal}`
-            }
+            callbacks: { afterBody: () => `Flotta: ${fleetTotal}` }
           }
         }
       }
@@ -374,7 +297,6 @@ function renderTrend(filtered) {
 }
 
 function renderDecemberDaily() {
-  // ignore range date, but keep branch/agent
   const filtered = filterBookings({ useDateRange: false });
 
   const labels = dateSeries(DEC_MIN, DEC_MAX);
@@ -403,6 +325,62 @@ function renderDecemberDaily() {
   }
 }
 
+function renderFilteredKPIsAndCharts() {
+  const filtered = filterBookings({ useDateRange: true });
+
+  const rev = filtered.reduce((a, b) => a + b.revenue, 0);
+  const anc = filtered.reduce((a, b) => a + b.ancillaries, 0);
+  const days = filtered.reduce((a, b) => a + (b.durationDays || 0), 0);
+  const inc = incidentsSumForBookings(filtered);
+
+  $("revTotal") && ($("revTotal").textContent = fmtEUR(rev));
+  $("ancTotal") && ($("ancTotal").textContent = fmtEUR(anc));
+  $("bookTotal") && ($("bookTotal").textContent = fmtNum(filtered.length));
+  $("incTotal") && ($("incTotal").textContent = fmtEUR(inc));
+
+  $("revDay") && ($("revDay").textContent = days > 0 ? fmtEUR(rev / days) : "—");
+  $("ancDay") && ($("ancDay").textContent = days > 0 ? fmtEUR(anc / days) : "—");
+
+  // Donut canali
+  const byChannel = groupCount(filtered, (b) => normStr(b.channel));
+  const chLabels = [...byChannel.keys()];
+  const chVals = chLabels.map((k) => byChannel.get(k));
+
+  destroyChart("channelsDonut");
+  const chCanvas = $("channelsDonut");
+  if (chCanvas && window.Chart) {
+    state.charts.channelsDonut = new Chart(chCanvas, {
+      type: "doughnut",
+      data: { labels: chLabels, datasets: [{ data: chVals, borderWidth: 0 }] },
+      options: { responsive: true, plugins: { legend: { position: "bottom" } } }
+    });
+  }
+
+  // % provider (bar)
+  const byProvider = groupCount(filtered, (b) => normStr(b.provider));
+  const prLabels = [...byProvider.keys()];
+  const total = filtered.length || 1;
+  const prPerc = prLabels.map((k) => Math.round((byProvider.get(k) / total) * 1000) / 10);
+
+  destroyChart("providersBar");
+  const prCanvas = $("providersBar");
+  if (prCanvas && window.Chart) {
+    state.charts.providersBar = new Chart(prCanvas, {
+      type: "bar",
+      data: { labels: prLabels, datasets: [{ label: "% prenotazioni", data: prPerc }] },
+      options: {
+        responsive: true,
+        scales: { y: { beginAtZero: true, max: 100, ticks: { callback: (v) => v + "%" } } },
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
+
+  renderBoAgentTable(filtered);
+  renderTrend(filtered);
+  renderDecemberDaily();
+}
+
 /** ==========================
     Init UI
     ========================== */
@@ -427,8 +405,8 @@ function initFiltersUI() {
 
   if (applyBtn) {
     applyBtn.addEventListener("click", () => {
-      state.filters.dateFrom = (df && df.value) ? df.value : TREND_MIN;
-      state.filters.dateTo = (dt && dt.value) ? dt.value : TREND_MAX;
+      state.filters.dateFrom = df?.value || TREND_MIN;
+      state.filters.dateTo = dt?.value || TREND_MAX;
       state.filters.branches = getSelectedValues(branchSelect);
       state.filters.agents = getSelectedValues(agentSelect);
       renderAll();
@@ -449,9 +427,9 @@ function initFiltersUI() {
 
 function renderAll() {
   if (!state.data) return;
-  renderFixedOccupation();          // fissa
-  renderFixedFleetAndMaintenance(); // fissa
-  renderFilteredKPIsAndCharts();    // filtrabile
+  renderFixedOccupation();
+  renderFixedFleetAndMaintenance();
+  renderFilteredKPIsAndCharts();
 }
 
 /** ==========================
@@ -462,16 +440,15 @@ async function init() {
   try {
     setStatus("Caricamento dati…");
 
-    // Caricamento JSON: niente manifest
     const [bookingsRaw, occupationRaw, fleetRaw, serviceRaw, incidentsRaw] = await Promise.all([
-loadJSON("bookings.json")
-loadJSON("occupation.json")
-loadJSON("fleet.json")
-loadJSON("service.json")
-loadJSON("incidents.json")
+      loadJSON("bookings.json"),
+      loadJSON("occupation.json"),
+      loadJSON("fleet.json"),
+      loadJSON("service.json"),
+      loadJSON("incidents.json")
     ]);
 
-    // Normalizzazione campi bookings (accetta anche varianti)
+    // Normalizzazione bookings
     const bookings = (bookingsRaw || []).map((x) => ({
       id: Number(x.id),
       pickupDate: toDateOnly(x.pickupDate ?? x.pickupAt),
@@ -497,7 +474,7 @@ loadJSON("incidents.json")
 
     const fleet = (fleetRaw || []).map((x) => ({
       licensePlate: normStr(x.licensePlate ?? x.targa ?? x.plate),
-      provider: normStr(x.provider ?? x.fornitore ?? x["Car"] ?? x["Provider"])
+      provider: normStr(x.provider ?? x.fornitore ?? x["Provider"] ?? x["Car"])
     }));
 
     const service = (serviceRaw || []).map((x) => ({
@@ -515,18 +492,9 @@ loadJSON("incidents.json")
   } catch (err) {
     console.error(err);
     setStatus(`Errore caricamento: ${err.message}`, true);
-
-    // Suggerimento utile in console
-    console.warn(
-      "Controlla che i file esistano e siano pubblicati:",
-      url("data/bookings.json"),
-      url("data/occupation.json"),
-      url("data/fleet.json"),
-      url("data/service.json"),
-      url("data/incidents.json")
-    );
+    console.warn("Verifica URL JSON:", url("bookings.json"), url("occupation.json"), url("fleet.json"), url("service.json"), url("incidents.json"));
   }
 }
 
-// avvio
+// Avvio
 init();
