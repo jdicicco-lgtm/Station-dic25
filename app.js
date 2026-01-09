@@ -1,13 +1,19 @@
 /* ==========================
    Station-dic25 Dashboard
-   app.js — aligned to real columns & HTML
+   app.js — FINAL STABLE
    ========================== */
 
+/* --------------------------
+   Date ranges
+-------------------------- */
 const TREND_MIN = "2025-12-01";
 const TREND_MAX = "2026-01-04";
 const DEC_MIN = "2025-12-01";
 const DEC_MAX = "2025-12-31";
 
+/* --------------------------
+   State
+-------------------------- */
 const state = {
   data: {},
   filters: {
@@ -21,20 +27,28 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
-/* ==========================
+/* --------------------------
    Utils
-   ========================== */
+-------------------------- */
 const fmtEUR = (n) =>
   Number(n || 0).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+
 const fmtNum = (n) => Number(n || 0).toLocaleString("it-IT");
+
 const pct = (v) => (Number(v || 0) * 100).toFixed(1) + "%";
+
 const norm = (v) => String(v ?? "").trim();
+
 const dOnly = (v) => String(v ?? "").slice(0, 10);
+
 const inRange = (d, f, t) => d && d >= f && d <= t;
 
 const BASE = new URL(".", location.href);
 const url = (p) => new URL(p, BASE).toString();
 
+/* --------------------------
+   Fetch JSON (safe)
+-------------------------- */
 async function loadJSON(p) {
   const r = await fetch(url(p) + "?v=" + Date.now());
   const t = await r.text();
@@ -42,9 +56,9 @@ async function loadJSON(p) {
   return JSON.parse(t);
 }
 
-/* ==========================
-   Load + normalize data
-   ========================== */
+/* --------------------------
+   Init
+-------------------------- */
 async function init() {
   try {
     $("dataStatus").textContent = "Caricamento dati…";
@@ -63,44 +77,58 @@ async function init() {
       loadJSON("incidents.json")
     ]);
 
-    /* ---- BOOKINGS ---- */
+    /* ---------- BOOKINGS ---------- */
     const bookings = bookingsRaw.map((r) => ({
-      id: Number(r["Booking ID"] ?? r.id),
-      pickup: dOnly(r["Pickup Date"]),
-      dropoff: dOnly(r["Dropoff Date"]),
-      branch: norm(r["Branch Office"]),
-      agent: norm(r["Agent"]),
-      channel: norm(r["Channel"]),
-      provider: norm(r["Provider"]),
-      revenue: Number(r["Revenue"] || 0),
-      anc: Number(r["Ancillaries"] || 0),
-      days: Number(r["Duration Days"] || 0)
+      id: Number(r["Booking ID"] ?? r["ID Booking"] ?? r.id),
+      pickup: dOnly(r["Pickup Date"] ?? r["Pick-up Date"]),
+      dropoff: dOnly(r["Dropoff Date"] ?? r["Drop-off Date"]),
+      branch: norm(r["Branch Office"] ?? r["Branch"] ?? r["Station"]),
+      agent: norm(r["Agent"] ?? r["Agente"] ?? r["Agent Name"]),
+      channel: norm(r["Channel"] ?? r["Canale"]),
+      provider: norm(r["Provider"] ?? r["Car Provider"]),
+      revenue: Number(
+        String(r["Revenue"] ?? r["Total Price"] ?? "0").replace(",", ".")
+      ),
+      anc: Number(
+        String(r["Ancillaries"] ?? r["Additional Services"] ?? "0").replace(",", ".")
+      ),
+      days: Number(r["Duration Days"] ?? r["Days"] ?? 0)
     }));
 
-    /* ---- OCCUPATION (FIXED) ---- */
-    const occupation = occupationRaw
+    /* ---------- OCCUPATION (FIXED, % SAFE) ---------- */
+    const occMap = {};
+    occupationRaw.forEach((r) => {
+      const raw = String(r["Occupation"] ?? "").replace("%", "").replace(",", ".");
+      const val = Number(raw);
+      const branch = norm(r["Branch Offices"] ?? r["Branch Office"]);
+      if (branch && Number.isFinite(val)) {
+        occMap[branch] = val / 100;
+      }
+    });
+
+    const occupation = Object.entries(occMap).map(([branch, value]) => ({
+      branch,
+      value
+    }));
+
+    /* ---------- FLEET ---------- */
+    const fleet = fleetRaw
       .map((r) => ({
-        branch: norm(r["Branch Offices"]),
-        value: Number(r["Occupation"])
+        plate: norm(r["License Plate"] ?? r["Targa"]),
+        provider: norm(r["Provider"] ?? r["Car Provider"] ?? r["Supplier"])
       }))
-      .filter((r) => r.branch && Number.isFinite(r.value));
+      .filter((f) => f.provider);
 
-    /* ---- FLEET (FIXED) ---- */
-    const fleet = fleetRaw.map((r) => ({
-      plate: norm(r["Plate"]),
-      provider: norm(r["Provider"])
-    }));
-
-    /* ---- SERVICE / MAINTENANCE (FIXED) ---- */
+    /* ---------- SERVICE ---------- */
     const service = serviceRaw.map((r) => ({
       type: norm(r["Service Type"]),
       status: norm(r["Status"])
     }));
 
-    /* ---- INCIDENTS (FILTERED) ---- */
+    /* ---------- INCIDENTS ---------- */
     const incidents = incidentsRaw.map((r) => ({
       bookingId: Number(r["Booking ID"]),
-      value: Number(r["Total Price"] || 0)
+      value: Number(String(r["Total Price"] ?? "0").replace(",", "."))
     }));
 
     state.data = { bookings, occupation, fleet, service, incidents };
@@ -111,13 +139,13 @@ async function init() {
     $("dataStatus").textContent = "Dati caricati";
   } catch (e) {
     console.error(e);
-    $("dataStatus").textContent = "Errore dati";
+    $("dataStatus").textContent = "Errore caricamento dati";
   }
 }
 
-/* ==========================
+/* --------------------------
    Filters UI
-   ========================== */
+-------------------------- */
 function initFilters() {
   flatpickr("#dateRange", {
     mode: "range",
@@ -131,8 +159,13 @@ function initFilters() {
     }
   });
 
-  const branches = [...new Set(state.data.bookings.map((b) => b.branch))];
-  const agents = [...new Set(state.data.bookings.map((b) => b.agent))];
+  const branches = [...new Set(
+    state.data.bookings.map((b) => b.branch).filter(Boolean)
+  )].sort();
+
+  const agents = [...new Set(
+    state.data.bookings.map((b) => b.agent).filter(Boolean)
+  )].sort();
 
   const bSel = $("branchSelect");
   const aSel = $("agentSelect");
@@ -140,8 +173,8 @@ function initFilters() {
   bSel.innerHTML = branches.map((b) => `<option>${b}</option>`).join("");
   aSel.innerHTML = agents.map((a) => `<option>${a}</option>`).join("");
 
-  new Choices(bSel, { removeItemButton: true });
-  new Choices(aSel, { removeItemButton: true });
+  new Choices(bSel, { removeItemButton: true, shouldSort: false });
+  new Choices(aSel, { removeItemButton: true, shouldSort: false });
 
   $("applyBtn").onclick = () => {
     state.filters.branches = [...bSel.selectedOptions].map((o) => o.value);
@@ -155,19 +188,30 @@ function initFilters() {
   };
 }
 
-/* ==========================
-   Rendering
-   ========================== */
+/* --------------------------
+   Helpers
+-------------------------- */
+function resetChart(id) {
+  if (state.charts[id]) {
+    state.charts[id].destroy();
+    delete state.charts[id];
+  }
+}
+
 function getFilteredBookings() {
   const { from, to, branches, agents } = state.filters;
+
   return state.data.bookings.filter((b) => {
-    if (!inRange(b.pickup, from, to)) return false;
+    if (b.pickup && !inRange(b.pickup, from, to)) return false;
     if (branches.length && !branches.includes(b.branch)) return false;
     if (agents.length && !agents.includes(b.agent)) return false;
     return true;
   });
 }
 
+/* --------------------------
+   Render
+-------------------------- */
 function renderAll() {
   renderOccupation();
   renderFleet();
@@ -176,7 +220,7 @@ function renderAll() {
   renderCharts();
 }
 
-/* ---- FIXED ---- */
+/* ---------- FIXED ---------- */
 function renderOccupation() {
   const wrap = $("occupationKpis");
   wrap.innerHTML = "";
@@ -192,6 +236,7 @@ function renderOccupation() {
   const avg =
     state.data.occupation.reduce((a, x) => a + x.value, 0) /
     state.data.occupation.length;
+
   $("occAvg").textContent = pct(avg);
 }
 
@@ -206,12 +251,14 @@ function renderFleet() {
 }
 
 function renderMaintenance() {
+  resetChart("maintenance");
+
   const byType = {};
   state.data.service.forEach((s) => {
-    byType[s.type] = (byType[s.type] || 0) + 1;
+    if (s.type) byType[s.type] = (byType[s.type] || 0) + 1;
   });
 
-  new Chart($("maintenanceChart"), {
+  state.charts.maintenance = new Chart($("maintenanceChart"), {
     type: "bar",
     data: {
       labels: Object.keys(byType),
@@ -221,7 +268,7 @@ function renderMaintenance() {
   });
 }
 
-/* ---- FILTERED ---- */
+/* ---------- FILTERED ---------- */
 function renderKPIs() {
   const b = getFilteredBookings();
 
@@ -230,7 +277,8 @@ function renderKPIs() {
   $("bookingsTotal").textContent = fmtNum(b.length);
 
   const days = b.reduce((a, x) => a + x.days, 0);
-  $("avgDuration").textContent = days ? (days / b.length).toFixed(1) + " gg" : "—";
+  $("avgDuration").textContent =
+    b.length ? (days / b.length).toFixed(1) + " gg" : "—";
 
   const inc = state.data.incidents
     .filter((i) => b.some((x) => x.id === i.bookingId))
@@ -240,45 +288,54 @@ function renderKPIs() {
 }
 
 function renderCharts() {
-  /* CHANNEL DONUT */
   const b = getFilteredBookings();
-  const byCh = {};
-  b.forEach((x) => (byCh[x.channel] = (byCh[x.channel] || 0) + 1));
 
-  new Chart($("channelDonut"), {
+  /* CHANNEL DONUT */
+  resetChart("channel");
+  const byCh = {};
+  b.forEach((x) => {
+    if (x.channel) byCh[x.channel] = (byCh[x.channel] || 0) + 1;
+  });
+
+  state.charts.channel = new Chart($("channelDonut"), {
     type: "doughnut",
     data: { labels: Object.keys(byCh), datasets: [{ data: Object.values(byCh) }] }
   });
 
   /* PROVIDER BAR */
+  resetChart("provider");
   const byProv = {};
-  b.forEach((x) => (byProv[x.provider] = (byProv[x.provider] || 0) + 1));
+  b.forEach((x) => {
+    if (x.provider) byProv[x.provider] = (byProv[x.provider] || 0) + 1;
+  });
 
-  new Chart($("providerBar"), {
+  state.charts.provider = new Chart($("providerBar"), {
     type: "bar",
     data: {
       labels: Object.keys(byProv),
-      datasets: [
-        {
-          label: "%",
-          data: Object.values(byProv).map((v) =>
-            ((v / b.length) * 100).toFixed(1)
-          )
-        }
-      ]
+      datasets: [{
+        label: "%",
+        data: Object.values(byProv).map(v =>
+          ((v / (b.length || 1)) * 100).toFixed(1)
+        )
+      }]
     }
   });
 
   /* FLEET PIE */
+  resetChart("fleet");
   const byFleet = {};
-  state.data.fleet.forEach(
-    (x) => (byFleet[x.provider] = (byFleet[x.provider] || 0) + 1)
-  );
+  state.data.fleet.forEach((x) => {
+    if (x.provider) byFleet[x.provider] = (byFleet[x.provider] || 0) + 1;
+  });
 
-  new Chart($("fleetPie"), {
+  state.charts.fleet = new Chart($("fleetPie"), {
     type: "pie",
     data: { labels: Object.keys(byFleet), datasets: [{ data: Object.values(byFleet) }] }
   });
 }
 
+/* --------------------------
+   Start
+-------------------------- */
 init();
