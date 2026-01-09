@@ -69,9 +69,25 @@ const url = (p) => new URL(p, BASE).toString();
 /** Carica JSON da path RELATIVO ALLA ROOT del sito */
 async function loadJSON(relativePath) {
   const full = url(relativePath);
-  const res = await fetch(full, { cache: "no-store" });
-  if (!res.ok) throw new Error(`HTTP ${res.status} su ${full}`);
-  return res.json();
+
+  // cache-bust (evita che il browser ti serva vecchie versioni)
+  const withBust = full + (full.includes("?") ? "&" : "?") + "v=" + Date.now();
+
+  const res = await fetch(withBust, { cache: "no-store" });
+  const text = await res.text();
+
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} su ${full} — Inizio risposta: ${text.slice(0, 120)}`);
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error(
+      `JSON NON valido in ${full} — ${e.message}\n` +
+      `Inizio file: ${text.slice(0, 160)}`
+    );
+  }
 }
 
 function getSelectedValues(selectEl) {
